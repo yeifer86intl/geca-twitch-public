@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 concurrency:
@@ -21,8 +21,9 @@ jobs:
       TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
       TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
       GH_TOKEN: ${{ github.token }}
+      GECA_REPO: ${{ github.repository }}
       PYTHONPATH: src
-      STEAM_REPO: yeifer86intl/geca-radar-public
+      STEAM_REPO: ${{ vars.GECA_STEAM_REPO || 'yeifergeca/geca-radar' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,9 +39,13 @@ jobs:
       - name: Validar secretos
         run: |
           python -c "import os,sys; sys.exit(0 if os.getenv('TWITCH_CLIENT_ID') and os.getenv('TWITCH_CLIENT_SECRET') else 1)"
-      - name: Recuperar último SQLite
-        run: python scripts/restore_latest_artifact.py
+      - name: Restaurar estado persistente y validado (obligatorio)
+        run: python scripts/release_state.py restore --db state/geca_twitch.sqlite3
+      - name: Respaldar estado anterior antes de la ingesta
+        run: cp state/geca_twitch.sqlite3 state/geca_twitch_previo.sqlite3
       - name: Descargar maestro histórico actualizado de Steam
+        env:
+          GH_TOKEN: ${{ secrets.GECA_READ_TOKEN }}
         run: python scripts/download_steam_catalog.py --repo "$STEAM_REPO" --out data/geca_steam_historico.xlsx --csv data/steam_maestro_actual.csv --require-today
       - name: Ingesta transaccional Steam/Twitch
         run: |
@@ -52,19 +57,37 @@ jobs:
             --discover-limit 0 \
             --max-videos 500 --clip-hours 8
       - name: Agregados, evaluación y exportaciones
-        if: always()
+        if: success()
+        env:
+          GECA_LIGHT_EXPORTS: "1"
         run: |
           if [ -f state/geca_twitch.sqlite3 ]; then
             python -m geca_twitch.aggregate --db state/geca_twitch.sqlite3 --out outputs
           fi
-      - name: Guardar SQLite histórico
-        if: always()
+      - name: Documentar alcance de las capturas nuevas
+        env:
+          GECA_TWITCH_SCOPE_ID: ${{ vars.GECA_TWITCH_SCOPE_ID }}
+        run: |
+          python scripts/stamp_scope.py --before state/geca_twitch_previo.sqlite3 --after state/geca_twitch.sqlite3 --scope "${GECA_TWITCH_SCOPE_ID}"
+      - name: Exportar solo incremento Twitch
+        run: |
+          python scripts/export_twitch_delta.py \
+            --before state/geca_twitch_previo.sqlite3 \
+            --after state/geca_twitch.sqlite3 \
+            --repo "${{ github.repository }}" \
+            --run "${{ github.run_id }}" \
+            --out outputs/delta/twitch_delta.jsonl.gz
+      - name: Publicar incremento (sin SQLite completa)
         uses: actions/upload-artifact@v4
         with:
-          name: geca-twitch-state
-          path: state/geca_twitch.sqlite3
-          if-no-files-found: warn
+          name: geca-twitch-delta
+          path: outputs/delta/twitch_delta.jsonl.gz
+          if-no-files-found: error
           retention-days: 30
+      - name: Publicar estado persistente Twitch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/release_state.py publish --db state/geca_twitch.sqlite3 --prune
       - name: Guardar reportes CSV
         if: always()
         uses: actions/upload-artifact@v4

@@ -4,6 +4,7 @@ import argparse
 import csv
 import datetime as dt
 import json
+import os
 from pathlib import Path
 from .db import connect
 from .releases import get_launch_candidates
@@ -187,6 +188,15 @@ def export_csv(c,folder):
       'editorial_proposals.csv':'SELECT * FROM editorial_proposals ORDER BY proposal_day,game_key',
       'geca_all_signals.csv':'SELECT * FROM geca_signals ORDER BY proposal_day,game_key',
       'editorial_decisions.csv':'SELECT * FROM editorial_decisions ORDER BY decided_utc DESC',
+      'cola_revision_humana.csv':'''SELECT d.proposal_day,d.game_key,p.game_name,p.rule,
+          p.question,p.evidence_json,d.note,d.decided_by,d.decided_utc
+          FROM editorial_decisions d JOIN editorial_proposals p
+          ON p.proposal_day=d.proposal_day AND p.game_key=d.game_key
+          WHERE d.decision='analizar' AND NOT EXISTS (
+            SELECT 1 FROM editorial_decisions newer WHERE newer.proposal_day=d.proposal_day
+            AND newer.game_key=d.game_key AND (newer.decided_utc>d.decided_utc
+              OR (newer.decided_utc=d.decided_utc AND newer.id>d.id)))
+          ORDER BY d.decided_utc DESC''',
       'twitch_video_links.csv':'''SELECT v.video_id,v.twitch_game_id,g.twitch_name,v.title,v.description,
           v.created_at,v.duration,v.language,v.url,v.user_id,v.user_name,
           o.view_count,o.captured_utc AS last_observed_utc
@@ -208,6 +218,12 @@ def export_csv(c,folder):
           AS steam_positive_pct FROM steam_games ORDER BY steam_name''',
       'runs.csv':'SELECT * FROM runs ORDER BY started_utc DESC'
     }
+    # El artifact diario es ligero; los vídeos/clips y snapshots siguen en SQLite.
+    if os.getenv('GECA_LIGHT_EXPORTS') == '1':
+        wanted={'steam_catalog_coverage.csv','attention_alerts.csv','attention_evaluations.csv',
+                'editorial_proposals.csv','editorial_decisions.csv',
+                'cola_revision_humana.csv','geca_all_signals.csv','runs.csv'}
+        queries={name:query for name,query in queries.items() if name in wanted}
     for filename,sql in queries.items():
         cur=c.execute(sql)
         with open(root/filename,'w',newline='',encoding='utf-8-sig') as f:

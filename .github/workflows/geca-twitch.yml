@@ -23,7 +23,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GECA_REPO: ${{ github.repository }}
       PYTHONPATH: src
-      STEAM_REPO: ${{ vars.GECA_STEAM_REPO || 'yeifergeca/geca-radar' }}
+      STEAM_REPO: ${{ vars.GECA_STEAM_REPO || 'yeifer86intl/geca-radar-public' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
         run: cp state/geca_twitch.sqlite3 state/geca_twitch_previo.sqlite3
       - name: Descargar maestro histórico actualizado de Steam
         env:
-          GH_TOKEN: ${{ secrets.GECA_READ_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: python scripts/download_steam_catalog.py --repo "$STEAM_REPO" --out data/geca_steam_historico.xlsx --csv data/steam_maestro_actual.csv --require-today
       - name: Ingesta transaccional Steam/Twitch
         run: |

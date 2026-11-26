@@ -2,7 +2,8 @@ name: GECA Twitch - extracción diaria
 
 on:
   schedule:
-    - cron: '0 23 * * *' # 19:00 Venezuela (UTC-4) = 23:00 UTC
+    - cron: '37 15 * * *' # Twitch: 15:37 España (Europe/Madrid; verano/invierno automaticos)
+      timezone: Europe/Madrid
   workflow_dispatch:
 
 permissions:
